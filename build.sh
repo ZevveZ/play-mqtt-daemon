@@ -1,5 +1,5 @@
 #! /bin/bash
-sudo apt update && sudo apt-get install build-essential gcc make cmake git libssl-dev libjpeg8-dev libev-dev linux-tools-common linux-tools-generic
+sudo apt update && sudo apt-get install build-essential gcc make cmake git libssl-dev libjpeg8-dev libev-dev linux-tools-common linux-tools-generic libncurses5-dev -y
 
 # build paho.mqtt.c
 git clone https://github.com/eclipse/paho.mqtt.c.git
@@ -21,15 +21,12 @@ sudo ldconfig -v
 # build mjpg-streamer
 cd ../../
 git clone https://github.com/jacksonliam/mjpg-streamer.git
-cd mjpg-streamer/mjpg-streamer-experimental
-mkdir build
-cd build
-make ..
+cd mjpg-streamer/mjpg-streamer-experimental/
 make
 
 # build lepd
 cd ../../../
-git clone https://github.com/linuxep/lepd.git
+git clone https://github.com/ZevveZ/lepd.git
 cd lepd/
 make
 
