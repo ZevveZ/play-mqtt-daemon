@@ -34,3 +34,9 @@ make
 cd ../controller/
 mkdir build
 make
+
+# configure systemd
+cd ../
+sudo cp play-mqtt-daemon.service /lib/systemd/system/
+sudo systemctl enable play-mqtt-daemon
+sudo systemctl start play-mqtt-daemon

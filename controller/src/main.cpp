@@ -63,14 +63,14 @@ int main(){
 	connOpts.set_keep_alive_interval(20);
 	connOpts.set_clean_session(true);
 	mqtt::ssl_options sslopts;
-	sslopts.set_trust_store("res/ca.crt");
+	sslopts.set_trust_store("controller/res/ca.crt");
 	connOpts.set_ssl(sslopts);
 
     mqtt::client cli(SERVER_ADDRESS, CLIENT_ID);
 
-	pcamera = new Camera ("src/publish/camera.sh");
-	pmcamera = new MjpegCamera(cli, "127.0.0.1", 8080, "/1/mcamera/0", "src/publish/mcamera.sh");
-	pmonitor = new Monitor(cli, "127.0.0.1", 12307, "src/publish/monitor.sh");
+	pcamera = new Camera ("controller/src/publish/camera.sh");
+	pmcamera = new MjpegCamera(cli, "127.0.0.1", 8080, "/1/mcamera/0", "controller/src/publish/mcamera.sh");
+	pmonitor = new Monitor(cli, "127.0.0.1", 12307, "controller/src/publish/monitor.sh");
 	pbundle = new Bundle(cli, "/1/sonar/0/realtime", "/1/laser/0/realtime", "/1/gesture/0/realtime");
 	
 	while(true){

@@ -1,0 +1,12 @@
+[Unit]
+Description=play-mqtt-daemon
+After=network.target
+
+[Service]
+ExecStart=/bin/bash /home/pi/play-mqtt-daemon/start.sh
+Restart=on-failure
+RestartSec=30s
+Type=simple
+
+[Install]
+WantedBy=multi-user.target
