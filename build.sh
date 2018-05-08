@@ -37,6 +37,7 @@ make
 
 # configure systemd
 cd $EXECPATH
+cp play-mqtt-daemon.service.im play-mqtt-daemon.service
 sed -i "6s#path#$EXECPATH#" play-mqtt-daemon.service
 sudo cp play-mqtt-daemon.service /lib/systemd/system/
 sudo systemctl enable play-mqtt-daemon

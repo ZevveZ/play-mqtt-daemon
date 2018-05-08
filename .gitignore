@@ -4,3 +4,4 @@
 /paho.mqtt.c/
 /paho.mqtt.cpp/
 /main
+/play-mqtt-daemon.service

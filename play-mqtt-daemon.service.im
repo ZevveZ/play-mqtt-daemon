@@ -3,7 +3,7 @@ Description=play-mqtt-daemon
 After=network.target
 
 [Service]
-ExecStart=/bin/bash -c "cd /home/pi/zev/play-mqtt-daemon && ./main"
+ExecStart=/bin/bash -c "cd path && ./main"
 Restart=on-failure
 RestartSec=30s
 Type=simple
