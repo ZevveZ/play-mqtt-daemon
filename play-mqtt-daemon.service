@@ -3,7 +3,7 @@ Description=play-mqtt-daemon
 After=network.target
 
 [Service]
-ExecStart=/bin/bash /home/pi/play-mqtt-daemon/start.sh
+ExecStart=/bin/bash -c "cd /home/pi/play-mqtt-daemon && ./main"
 Restart=on-failure
 RestartSec=30s
 Type=simple

@@ -32,7 +32,6 @@ make
 
 # build controller
 cd ../controller/
-mkdir build
 make
 
 # configure systemd

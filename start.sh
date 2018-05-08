@@ -1,2 +1,2 @@
 #! /bin/bash
-cd /home/pi/play-mqtt-daemon/ && sudo controller/build/main
+sudo systemctl start play-mqtt-daemon

@@ -1,6 +1,6 @@
 /controller/.vscode/
-/controller/build/
 /lepd/
 /mjpg-streamer/
 /paho.mqtt.c/
 /paho.mqtt.cpp/
+/main
