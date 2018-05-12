@@ -138,12 +138,117 @@ socket可以使用HTTP协议与HTTP服务器进行通信。HTTP协议是纯文�
 
 ### 系统概述
 
-基于服务器的机器人后台管理系统实现了如下功能：
+基于服务器的机器人后台管理系统实现了以下功能：
 
 - 用户管理功能。包括用户注册、登录、注销
 - 机器人管理功能。包括添加删除机器人、静态地为机器人添加或删除传感器以及创建或删除传感器类型
 - 数据管理功能。机器人将各种传感器信息上传到服务器后台，既可以实时可视化数据，也可以将数据保存到服务器，方便以后查看
-- 远程控制机器人功能。在远程通过服务器控制机器人移动
+- 远程控制机器人功能。远程通过服务器控制机器人移动
+
+### 使用Django作为WEB服务器
+
+Django提供与用户管理、机器人管理相关的功能。
+
+#### 数据库设计
+
+本论文使用的是Mysql数据库，使用Django自带的Models模板创建数据库。包括以下数据表：
+
+##### Users表
+
+键|说明
+--|--
+id|主键，标识每个用户
+password|密码，不存储明文密码
+last_login|记录最后登录的时间
+is_superuser|超级用户标志位，超级用户可以进入Django管理后台，并且可以绕开Mosquitto的权限检查
+username|用户名，用于登录WEB服务器和Mosquitto服务器
+first_name|用户名字
+last_name|用户姓氏
+email|用户邮件
+is_staff|设置为True表示用户可以进入Django后台管理
+is_active|设置为True表示用户可以登录
+date_joined|记录用户注册时间
+nickname|用户昵称
+
+##### Devices表
+
+键|说明
+--|--
+id|主键，标识每个设备
+devicename|设备用户名，用于设备登录Mosquitto服务器
+password|密码，不存储明文密码
+nickname|设备昵称
+
+##### Sensors表
+
+键|说明
+--|--
+id|主键，标识一种传感器
+sensorname|一种传感器的名称
+sensorurl|访问一种传感器的url模板
+
+##### DevicesSensors表
+
+键|说明
+--|--
+id|主键，标识设备和传感器的所属关系
+sensorcnt|某个设备拥有某种传感器的数量
+device_id|外键，标识某个设备
+sensor_id|外键，标识某种传感器
+
+##### ACLs表
+
+ACLs表具有两个功能，一方面记录了用户和设备的所属关系，另一方面作为Mosquitto服务器的访问控制列表。
+
+键|说明
+--|--
+id|主键，标识一种访问权限或者设备所属关系
+clientname|登录Mosquitto服务器的账号，可以是Users表的username或者是Devices表的devicename
+topic|某个Mosquitto主题
+rw|对某个主题的访问权限，1表示具有订阅权限，2表示具有订阅和发布权限
+device_id|Devices表的外键，表示某个设备
+user_id|Users表的外键，表示某个用户
+
+#### RESTfull接口设计
+
+为了提供结构清晰、符合标准、易于理解、扩展方便的API接口，更好地实现前后端分离，本论文使用REST原则设计了API接口，提供RESTful服务。后台提供的接口如下所示：
+
+URL|Method|说明
+--|--|--|
+/users/|POST|注册新用户，用户名只能由字母数字组成
+/session/|POST|用于用户登录
+/session/|DELETE|用于用户登出
+/users/{username}/|GET|返回username用户的信息
+/users/{username}/|POST|修改username用户的信息、增删用户设备列表
+/users/{username}/|DELETE|删除username用户，与该用户有关的信息都会被删除
+/users/{username}/{deviceid}/|POST|在username用户的设备列表中添加deviceid设备
+/users/{username}/{deviceid}/|DELETE|在username用户的设备列表中移除deviceid设备
+/devices/|POST|添加新的设备, 注意新设备不会添加到当前登陆用户的设备列表中
+/devices/{device_id}/|GET|返回device_id设备的信息
+/devices/{device_id}/|POST|修改device_id设备的信息
+/devices/{device_id}/|DELETE|删除device_id设备
+/sensors/|GET|返回目前支持的传感器信息,包括sensorname和sensorurl
+/sensors/|POST|添加新的传感器, 注意新添加的传感器并没有添加到任何设备上
+
+### 使用Mosquitto作为MQTT代理服务器
+
+Mosquitto提供数据管理功能，机器人将传感器的数据通过Mosquitto服务器发布在某个话题上，服务器程序订阅感兴趣的话题，就可以获得对应的数据进行处理。
+
+#### 话题设计
+
+话题|说明
+--|--
+/{id}/cmd|用于向机器人发送命令，可选的命令包括monitor_open, monitor_close, mcamera_open, mcamera_close, bundle_open, bundle_close,用于开关各种传感器
+/{id}/monitor/{sub_monitor}/raw|机器人内部运行状态的原始数据，由服务器程序monitor进行订阅处理,sub_monitor可选cpu_stat、memory_procrank等
+/{id}/monitor/{sub_monitor}|此话题由服务器程序monitor进行发布，外部程序可以订阅此话题进行数据的可视化显示
+/{id}/mcamera/{mcamera_id}|机器人将视频数据发送到该话题上，外部程序订阅此话题可以实时接收视频数据；mcamera_id从0开始编号，如果有多个摄像头，编号依次递增
+/{id}/{sensor_type}/{sensor_id}/realtime|实时显示传感器数据，sensor_type可选sonar、laser、gesture；sensor_id从0开始编号，如果有多个同种类型的传感器，编号依次递增
+/{id}/{sensor_type}/{sensor_id}/replay|向对应的timemachine发送命令replay_open，服务器程序timemachine就会读取保存的历史数据进行发送，外部程序订阅此话题可以实现接收历史数据的功能
+/{id}/{sensor_type}/{sensor_id}/timemachine|由服务器程序timemachine进行订阅，主要用于接收外部程序的命令，可选的命令包括record_open, record_close, replay_open, replay_close
+
+#### 数据采集
+
+#### 数据处理
 
 ## 实验平台搭建
 
