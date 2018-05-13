@@ -37,7 +37,7 @@ MQTT被设计能够工作多种网络环境下，为了在不同网络环境下�
 
 #### Mosquitto代理服务器介绍
 
-当设备之间通过MQTT协议进行通讯时，需要有中间服务器来管理不同的话题、转发消息、进行权限认证、加密消息等工作，完成这部分工作的中间件称其为MQTT代理服务器，常见的MQTT代理服务器有Mosquitto、HiveMQ、EMQ等，因为开源的Mosquitto非常方便进行二次开发，因此本论文采用的是Mosquitto作为实验的MQTT代理服务器。
+当设备之间通过MQTT协议进行通讯时，需要有中间服务器来管理不同的话题、转发消息、进行权限认证、加密消息等工作，完成这部分工作的中间件称其为MQTT代理服务器，常见的MQTT代理服务器有Mosquitto、HiveMQ、EMQ等，因为开源的Mosquitto非常方便进行二次开发，因此本课题采用的是Mosquitto作为实验的MQTT代理服务器。
 
 ##### 使用SSL/TLS加密消息
 
@@ -51,11 +51,11 @@ SSL(Secure Sockets Layer)最初由Netscape公司设计，为网络通信提供�
 - 客户端和服务器协商生成会话密钥
 - 客户端和服务器使用会话密钥对通信进行加密
 
-Mosquitto支持对消息进行SSL/TLS加密，本论文使用的是TLS 1.0版本，对消息进行加密后，无法再传输过程中窃取篡改消息，提高了数据传输的安全性
+Mosquitto支持对消息进行SSL/TLS加密，本课题使用的是TLS 1.0版本，对消息进行加密后，无法再传输过程中窃取篡改消息，提高了数据传输的安全性
 
 ##### 基于用户名和密码的认证
 
-Mosquitto支持使用X509证书来进行认证，不过使用证书进行认证会带来一定的额外开销，例如需要关系证书的生命周期，并且本论文实现的系统还需要对用户进行认证，为每个用户颁发证书进行认证登录显然是不合理的。因此本论文使用的是基于用户名和密码的认证。因为Mosquitto只对用户名和密码认证提供有限的支持，不能满足本论文实现系统的要求，因此采用开源的插件mosquitto-auth-plug来实现用户名和密码认证。该插件提供对各种主流数据库的支持，并且与本论文的后台框架Django也能实现较好的融合。
+Mosquitto支持使用X509证书来进行认证，不过使用证书进行认证会带来一定的额外开销，例如需要关系证书的生命周期，并且本课题实现的系统还需要对用户进行认证，为每个用户颁发证书进行认证登录显然是不合理的。因此本课题使用的是基于用户名和密码的认证。因为Mosquitto只对用户名和密码认证提供有限的支持，不能满足本课题实现系统的要求，因此采用开源的插件mosquitto-auth-plug来实现用户名和密码认证。该插件提供对各种主流数据库的支持，并且与本课题的后台框架Django也能实现较好的融合。
 
 ### Docker
 
@@ -108,31 +108,34 @@ LEP将数据采集和数据显示分离，数据采集端对应的是LEPD(LEP D
 
 ### mjpg-streamer
 
-mjpg-streamer是一个命令行工具，它能够从多种不同的输入组件获取JPEG帧，并将其复制到多个不同的输出组件。比较常用的输入组件包括input_opencv、input_raspicam和input_uvc；输出组件包括output_http和output_viewer。一种常见的使用方式是使用input_uvc组件在Linux下获取支持UVC标准摄像头的JPEG图像，使用output_http组件进行输出，这样就实现了一个基本的IP Camera的功能，通过访问摄像头的IP地址就可以获取JPEG图像。mjpg-streamer只能运行在可信的网络内，因为在同一网络中的所有设备都可以访问获取到摄像头的图像信息，考虑到安全性问题，本论文实现的系统在互联网传输图像时，不是采用直接暴露摄像头地址的方式，而是利用MQTT代理服务器的加密功能，使得图像信息不被窃取。
+mjpg-streamer是一个命令行工具，它能够从多种不同的输入组件获取JPEG帧，并将其复制到多个不同的输出组件。比较常用的输入组件包括input_opencv、input_raspicam和input_uvc；输出组件包括output_http和output_viewer。一种常见的使用方式是使用input_uvc组件在Linux下获取支持UVC标准摄像头的JPEG图像，使用output_http组件进行输出，这样就实现了一个基本的IP Camera的功能，通过访问摄像头的IP地址就可以获取JPEG图像。mjpg-streamer只能运行在可信的网络内，因为在同一网络中的所有设备都可以访问获取到摄像头的图像信息，考虑到安全性问题，本课题实现的系统在互联网传输图像时，不是采用直接暴露摄像头地址的方式，而是利用MQTT代理服务器的加密功能，使得图像信息不被窃取。
 
 ## 基于客户端开发设计与实现
 
-对于机器人后台管理系统而言，存在某些实时性要求较高的场景，例如遥控机器人避开障碍物，需要开发本地客户端来满足实时性要求。
+基于客户端的机器人管理系统能够实现在局域网下，通过机器人传输回来的视频数据，利用手柄控制机器人运动。如果采用服务器设计，机器人需要将视频数据传输到服务器，服务器再将视频数据传输给用户，用户将控制指令发送给服务器，服务器再转发控制指令，大大增加了延迟，非常不适合在实时性要求较高的场景使用。因此本课题专门针对机器人控制的场景提出了基于客户端的机器人管理系统的设计。
 
-### 系统概述
+### 系统设计
 
-本地机器人客户端主要实现接收来自机器人的视频信息、读取控制手柄信息以及将控制信息发送给机器人的功能。本地客户端和机器人处于同一局域网下，通过mjpg-streamer传输视频信息，根据机器人采集的视频信息，通过手柄控制机器人运动。
+通过基于客户端的机器人管理系统，用户可以根据机器人传输回来的视频数据，获取机器人周围环境的情况，通过手柄控制机器人运动。因此，基于客户端的机器人管理系统主要实现接收来自机器人的视频信息、读取手柄控制信息以及将手柄控制信息发送给机器人的功能。  
+为了降低延迟，客户端需要和机器人处于同一局域网下，客户端通过设置机器人的IP地址与机器人建立连接，机器人使用mjpg-streamer传输视频信息，客户端使用Joystick Library获取手柄控制信息，通过socket将手柄控制信息发送给机器人，机器人通过socket接收手柄的控制信息，机器人的运动控制由ROS实现。此处需要图
 
-### 获取视频信息
+### 系统实现
+
+#### 获取视频信息
 
 机器人上运行着mjpg-streamer服务，通过使用input_uvc组件获取USB摄像头的JPEG格式图像，使用output_http组件在机器人上开启HTTP服务器，外部可以通过访问HTTP服务器获取JPEG格式图像
 
-#### 使用socket连接HTTP服务器
+##### 使用socket连接HTTP服务器
 
 socket可以使用HTTP协议与HTTP服务器进行通信。HTTP协议是纯文本协议，意味着使用socket与服务器建立连接后，直接传递纯文本就可以了。mjpg-streamer使用output_http组件在机器人上建立了HTTP服务器，为了获取机器人采集到的视频数据，需要向HTTP服务器发送GET请求，服务器通过GET请求携带的action参数来进行不同的处理，将action参数设置为stream可以获得视频流数据。
 
-#### 使用socket接收JPEG图像
+##### 使用socket接收JPEG图像
 
 使用socket接收JPEG图像的关键在于判断图像的起始标记和结束标记。JPEG文件内容分为两个部分：标记码和压缩数据。标记码由两个字节组成，每种标记码的第一个字节都是0xFF，后一个字节用来区分不同的标记码，SOI(Start of Image)标记码为0xFFD8，EOI(End of Image)标记码为0xFFD9。因此在socket接收到的数据中，从0xFFD8到0xFFD9之间的数据就构成一张完整JPEG图像。通过显示连续的JPEG图像就形成了视频。
 
-### 获取手柄信息
+#### 获取手柄信息
 
-本论文使用的手柄型号为Logitech Extreme 3D Pro，Linux内核自带手柄驱动joystick，因此可以通过读设备文件来获得手柄的输入信息，获取手柄的输入信息非常容易，但是每款手柄的按键都有自己的编码方式，加上本论文使用的手柄官方并没有给出按键的编码表，因此本论文使用的是Wisconsin Robotics公司开源的Joystick Library。Joystick Library是一个跨平台的解决方案，支持获取多款手柄的控制信息，使用起来非常方便。
+本论文使用的手柄型号为Logitech Extreme 3D Pro，Linux内核自带手柄驱动joystick，因此可以通过读设备文件来获得手柄的输入信息，获取手柄的输入信息非常容易，但是每款手柄的按键都有自己的编码方式，加上本课题使用的手柄官方并没有给出按键的编码表，因此本课题使用的是Wisconsin Robotics公司开源的Joystick Library。Joystick Library是一个跨平台的解决方案，支持获取多款手柄的控制信息，使用起来非常方便。
 
 ## 基于服务器后台开发设计与实现
 
@@ -151,7 +154,7 @@ Django提供与用户管理、机器人管理相关的功能。
 
 #### 数据库设计
 
-本论文使用的是Mysql数据库，使用Django自带的Models模板创建数据库。包括以下数据表：
+本课题使用的是Mysql数据库，使用Django自带的Models模板创建数据库。包括以下数据表：
 
 ##### Users表
 
@@ -211,7 +214,7 @@ user_id|Users表的外键，表示某个用户
 
 #### RESTfull接口设计
 
-为了提供结构清晰、符合标准、易于理解、扩展方便的API接口，更好地实现前后端分离，本论文使用REST原则设计了API接口，提供RESTful服务。后台提供的接口如下所示：
+为了提供结构清晰、符合标准、易于理解、扩展方便的API接口，更好地实现前后端分离，本课题使用REST原则设计了API接口，提供RESTful服务。后台提供的接口如下所示：
 
 URL|Method|说明
 --|--|--|
@@ -248,8 +251,91 @@ Mosquitto提供数据管理功能，机器人将传感器的数据通过Mosqui
 
 #### 数据采集
 
+本课题采集的数据包括超声波测距信息、姿态传感器空间信息、激光测距信息、摄像头图像信息以及机器人内部资源使用情况。超声波传感器、姿态传感器和激光传感器的数据通过编写stm32单片机程序进行采集，摄像头图像信息借助mjpg-streamer开源项目进行采集，通过移植LEP开源项目获取机器人内部资源使用情况。
+
 #### 数据处理
 
-## 实验平台搭建
+机器人将采集的数据通过MQTT协议发送到服务器，在服务器端编写服务器程序，通过订阅相关的话题获取数据进行处理，借助MQTT协议，编写服务器程序非常容易。目前实现的服务器程序有monitor和timemachine。
 
-## 总结
+##### 服务器程序monitor
+
+服务器程序monitor的主要工作是订阅/{id}/monitor/{sub_monitor}/raw话题，获取机器人内部资源使用情况的原始数据，参考LEP开源项目的数据处理方式，对原始数据进行处理以便进行可视化显示，将处理后的数据发布到话题/{id}/monitor/{sub_monitor}上，这样外部程序就可以通过订阅该话题进行数据的可视化显示。
+
+##### 服务器程序timemachine
+
+服务器程序timemachine是一个多线程程序，它实现了超声波传感器、姿态传感器和激光传感器的保存和恢复历史数据的功能，通过订阅话题/{id}/{sensor_type}/{sensor_id}/timemachine接收控制命令，控制命令包括record_open、record_close、replay_open、replay_close。当timemachine接收到record_open命令时，就会开辟一条新的线程订阅话题/{id}/{sensor_type}/{sensor_id}/realtime，将接收到的数据保存到文件中，目前对于一个传感器只能保存一次历史数据，下次保存就会清空上次的历史数据；当timemachine接收到record_close命令时，就会取消订阅相应的话题，完成一次历史数据的保存工作；当接收到replay_open时，timemachine就会读取对应话题的历史数据文件，将历史数据发布到话题/{id}/{sensor_type}/{sensor_id}/replay上，外部程序就可以像订阅realtime一样接收到历史数据；当接收到replay_close时，timemachine就会停止发布replay消息，完成一次历史数据的发送工作。
+
+## 系统测试
+
+### 测试环境搭建
+
+本课题实现的机器人后台管理系统分为三个部分，运行在机器人上的play-mqtt-daemon，运行在服务器端的play-mqtt-viewer以及客户端jscontroller。下面详细介绍这三个部分。
+
+#### 客户端jscontroller
+
+客户端jscontroller是基于Qt编写的，虽然Qt具有跨平台特性，但是程序读取游戏手柄时使用了Joystick Library, 其只提供了对Linux和Windows支持，因此需要根据具体运行环境重新编译Joystick Library。本课题的测试环境是。
+
+##### 项目目录
+
+##### 项目构建
+
+#### play-mqtt-daemon
+
+##### 项目目录
+
+```
+.
+├── build.sh                    # 构建项目的脚本
+├── controller                  # main程序的源代码
+├── lepd                        # 开源的lepd项目
+├── main                        # 可执行主程序
+├── mjpg-streamer               # 开源的mjpg-streamer项目
+├── paho.mqtt.c                 # 开源的mqtt C语言实现
+├── paho.mqtt.cpp               # 开源的mqtt C++语言实现
+├── play-mqtt-daemon.service    # 与systemd服务有关
+├── play-mqtt-daemon.service.im # systemd服务模板文件
+├── start.sh                    # 启动主程序
+└── stop.sh                     # 停止主程序
+```
+
+##### 项目构建
+
+本课题的play-mqtt-daemon部分的运行环境是友善之臂公司的NanoPC-T3 Plus，运行的操作系统为友善之臂公司基于Ubuntu core定制的Friendly core。运行play-mqtt-daemon的项目步骤如下：
+
+- 执行命令`git clone https://github.com/ZevveZ/play-mqtt-daemon.git`克隆项目到本地
+- 进入项目文件夹后，执行命令`./build.sh`构建项目，需要注意的是该脚本仅仅在实验环境测试成功，其他环境未进行测试，build.sh脚本主要完成以下工作：
+  - 安装依赖的软件包
+  - 编译项目的各个模块
+  - 加入到systemd服务，下次开机自动启动
+- 在构建项目成功后，执行命令`./start.sh`后台运行程序，执行命令`./stop.sh`停止程序运行
+
+#### play-mqtt-viewer
+
+##### 项目目录
+
+```
+.
+├── build.sh            # 构建项目的脚本
+├── docker-compose.yml  # 使用docker-compose管理容器
+├── mosquitto           # 存放mosquitto的配置文件
+├── mosquitto-auth-plug # mosquitto-auth-plug的源代码
+├── mysql               # 存放mysql数据库的数据文件
+├── site                # 存放django项目
+├── start.sh            # 启动项目所有容器
+├── stop.sh             # 停止项目所有容器
+└── vue-docker-demo     # 存放前端vue项目
+```
+
+##### 项目构建
+
+本课题的play-mqtt-viewer的运行环境为Centos 7, 但是由于使用docker进行部署，能够在多种不同环境进行部署运行，运行play-mqtt-viewer项目的步骤如下：
+
+- 执行命令`git clone https://github.com/ZevveZ/play-mqtt-viewer.git`克隆项目到本地
+- 进入项目文件夹后，执行命令`./build.sh`构建项目，需要注意的是该脚本仅仅在实验环境测试成功，其他环境未进行测试，build.sh脚本主要完成以下工作：
+  - 安装依赖的软件包
+  - 构建项目依赖的所有容器，包括mysql、docker、mosquitto和vue
+- 在构建项目成功后，执行命令`./start.sh`启动所有容器，之后执行命令`./stop.sh`关闭所有容器
+
+### 运行效果
+
+## 结论
