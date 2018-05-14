@@ -110,6 +110,8 @@ LEP将数据采集和数据显示分离，数据采集端对应的是LEPD(LEP D
 
 mjpg-streamer是一个命令行工具，它能够从多种不同的输入组件获取JPEG帧，并将其复制到多个不同的输出组件。比较常用的输入组件包括input_opencv、input_raspicam和input_uvc；输出组件包括output_http和output_viewer。一种常见的使用方式是使用input_uvc组件在Linux下获取支持UVC标准摄像头的JPEG图像，使用output_http组件进行输出，这样就实现了一个基本的IP Camera的功能，通过访问摄像头的IP地址就可以获取JPEG图像。mjpg-streamer只能运行在可信的网络内，因为在同一网络中的所有设备都可以访问获取到摄像头的图像信息，考虑到安全性问题，本课题实现的系统在互联网传输图像时，不是采用直接暴露摄像头地址的方式，而是利用MQTT代理服务器的加密功能，使得图像信息不被窃取。
 
+### 本章小结
+
 ## 基于客户端开发设计与实现
 
 基于客户端的机器人管理系统能够实现在局域网下，通过机器人传输回来的视频数据，利用手柄控制机器人运动。如果采用服务器设计，机器人需要将视频数据传输到服务器，服务器再将视频数据传输给用户，用户将控制指令发送给服务器，服务器再转发控制指令，大大增加了延迟，非常不适合在实时性要求较高的场景使用。因此本课题专门针对机器人控制的场景提出了基于客户端的机器人管理系统的设计。
@@ -121,25 +123,102 @@ LEP将数据采集和数据显示分离，数据采集端对应的是LEPD(LEP D
 
 ### 系统实现
 
-#### 获取视频信息
+#### 客户端获取视频信息
 
-机器人上运行着mjpg-streamer服务，通过使用input_uvc组件获取USB摄像头的JPEG格式图像，使用output_http组件在机器人上开启HTTP服务器，外部可以通过访问HTTP服务器获取JPEG格式图像
+在机器人上运行mjpg-streamer程序，通过使用input_uvc组件获取USB摄像头的JPEG格式图像，使用output_http组件在机器人上开启HTTP服务器，外部可以通过访问HTTP服务器获取JPEG格式图像。在编译好的mjpg-streamer项目下找到可执行文件mjpg_streamer，在机器人端执行以下命令开启视频传输：
 
-##### 使用socket连接HTTP服务器
+```
+./mjpg_streamer -i "./input_uvc.so" -o "./output_http.so -w ./www"
+```
 
-socket可以使用HTTP协议与HTTP服务器进行通信。HTTP协议是纯文本协议，意味着使用socket与服务器建立连接后，直接传递纯文本就可以了。mjpg-streamer使用output_http组件在机器人上建立了HTTP服务器，为了获取机器人采集到的视频数据，需要向HTTP服务器发送GET请求，服务器通过GET请求携带的action参数来进行不同的处理，将action参数设置为stream可以获得视频流数据。
+执行上述命令后，默认情况下，会在机器人端的8080端口开启HTTP服务器，通过访问HTTP服务器相应的URL就可以获取视频数据。  
+客户端使用socket连接机器人端的HTTP服务器。socket可以使用HTTP协议与HTTP服务器进行通信。HTTP协议是纯文本协议，意味着使用socket与服务器建立连接后，直接传递纯文本就可以了。客户端的MjpegClient负责与机器人进行视频传输。通过调用MjpegClient的run方法向机器人端的HTTP服务器发送请求，为了获取机器人采集到的视频数据，需要向HTTP服务器发送GET请求，服务器通过GET请求携带的action参数来进行不同的处理，将action参数设置为stream可以获得视频流数据。
 
-##### 使用socket接收JPEG图像
+```
+void MjpegClient::run()
+{
+    imageBuffer.clear();                //imageBuffer存放一张JPEG图片
+    imageBuffer.append(0xFF);           //0xFFD8是JPEG图片的SOI(Start Of Image)标志
+    imageBuffer.append(0xD8);
+    QString str("GET /?action=stream"); //GET请求
+    QByteArray qba = str.toLocal8Bit();
+    qba += 0x0A;                        //HTTP请求头的结束标志为两个换行符
+    qba += 0x0A;
+    sock.write(qba);                    //发送请求
+}
+```
 
-使用socket接收JPEG图像的关键在于判断图像的起始标记和结束标记。JPEG文件内容分为两个部分：标记码和压缩数据。标记码由两个字节组成，每种标记码的第一个字节都是0xFF，后一个字节用来区分不同的标记码，SOI(Start of Image)标记码为0xFFD8，EOI(End of Image)标记码为0xFFD9。因此在socket接收到的数据中，从0xFFD8到0xFFD9之间的数据就构成一张完整JPEG图像。通过显示连续的JPEG图像就形成了视频。
+客户端发送请求之后，利用Qt的信号机制，当接收到HTTP服务器的响应后，会调用MjpegClient的recvMjpeg方法。recvMjpeg方法主要完成接收一张完整的JPEG图像的任务。使用socket接收JPEG图像的关键在于判断图像的起始标记和结束标记。JPEG文件内容分为两个部分：标记码和压缩数据。标记码由两个字节组成，每种标记码的第一个字节都是0xFF，后一个字节用来区分不同的标记码，SOI(Start of Image)标记码为0xFFD8，EOI(End of Image)标记码为0xFFD9。因此在socket接收到的数据中，从0xFFD8到0xFFD9之间的数据就构成一张完整JPEG图像。需要注意的是每次socket接收的数据不一定就是一张完整的JPEG图像，可能一张图像被分成多次发送，这样需要保留每次socket接收的数据，直到在接收缓冲区中检测到EOI标记码才可以确定接收到一张完整的图像。
 
-#### 获取手柄信息
+```
+void MjpegClient::recvMjpeg()
+{
+    char lastByte='\0';
+    QByteArray buffer;
+    buffer = sock.readAll();                          //获取接收到全部数据，注意不一定是一张完整的图像
+    for(int i = 0;i<buffer.count();i++)
+    {
+        if(enRecv) imageBuffer.append(buffer[i]);
+        if(lastByte == (char)0xFF)                    //所有的标记码都是以0xFF开头
+        {
+            if(buffer[i] == (char)0xD8)               //0xFFD8为SOI标记
+            {
+                enRecv = true;
+            }else if(buffer[i] == (char)0xD9)         //0xFFD9为EOI标记
+            {
+                enRecv = false;
+                QPixmap map;
+                map.loadFromData(imageBuffer,"JPEG");
+                if(!map.isNull())
+                    emit getImage(map);
+                imageBuffer.clear();
+                imageBuffer.append(0xFF);
+                imageBuffer.append(0xD8);             //为下一张图初始化SOI标记
+            }
+        }
+        lastByte = buffer[i];
+    }
+}
+```
 
-本论文使用的手柄型号为Logitech Extreme 3D Pro，Linux内核自带手柄驱动joystick，因此可以通过读设备文件来获得手柄的输入信息，获取手柄的输入信息非常容易，但是每款手柄的按键都有自己的编码方式，加上本课题使用的手柄官方并没有给出按键的编码表，因此本课题使用的是Wisconsin Robotics公司开源的Joystick Library。Joystick Library是一个跨平台的解决方案，支持获取多款手柄的控制信息，使用起来非常方便。
+#### 客户端获取手柄信息
 
-## 基于服务器后台开发设计与实现
+本课题使用的手柄型号为Logitech Extreme 3D Pro，Linux内核自带手柄驱动joystick，因此可以通过读设备文件来获得手柄的输入信息，获取手柄的输入信息非常容易，但是每款手柄的按键都有自己的编码方式，加上本课题使用的手柄官方并没有给出按键的编码表，因此本课题使用的是Wisconsin Robotics公司开源的Joystick Library。Joystick Library是一个跨平台的解决方案，支持获取多款手柄的控制信息，使用起来非常方便。客户端的JoystickClient负责读取手柄的控制信息，并将手柄控制信息通过socket发送给机器人端。JoystickClient继承自QThread，每个实例都是一条独立的线程，这样在读取手柄控制信息的同时不会阻塞主界面的运行。JoystickClient的run方法是主循环，主要负责初始化连接。
 
-### 系统概述
+```
+void JoystickClient::run(){
+    while (es.GetNumberConnected() < 1);        //等待手柄连接
+
+    if(init_connect(host, port)==false) return; //连接机器人
+
+    while(true){
+        auto& a = es.GetIDs();
+        if (a.size() <= 0)
+            continue;
+        check(a[0]);                            //读取手柄的状态
+        usleep(10000);
+    }
+}
+```
+
+es对象的类型是Extreme3DProService，由开源库Joystick Library提供，可以用于读取Logitech Extreme 3D Pro手柄所有按键的输入，本课题实现的客户端只需要获取手柄x轴和y轴的输入，x轴和y轴的输入范围为[-100, 100]之间。获取x轴和y轴的输入之后，将其发送给机器人，机器人获取到输入后，传递给底层控制模块，控制机器人运动。有关机器人端底层控制模块由团队里的另一个同学开发。
+
+```
+void JoystickClient::check(int id){
+    int x, y;
+    if(!es.GetX(id, x)) //获取x轴输入
+        x=0;
+    if(!es.GetY(id, y)) //获取y轴输入
+        y=0;
+    send(x, y);         //发送给机器人
+}
+```
+
+### 本章小结
+
+## 基于服务器开发设计与实现
+
+### 系统设计
 
 基于服务器的机器人后台管理系统实现了以下功能：
 
@@ -148,15 +227,17 @@ socket可以使用HTTP协议与HTTP服务器进行通信。HTTP协议是纯文�
 - 数据管理功能。机器人将各种传感器信息上传到服务器后台，既可以实时可视化数据，也可以将数据保存到服务器，方便以后查看
 - 远程控制机器人功能。远程通过服务器控制机器人移动
 
-### 使用Django作为WEB服务器
+### 系统实现
+
+#### 使用Django作为WEB服务器
 
 Django提供与用户管理、机器人管理相关的功能。
 
-#### 数据库设计
+##### 数据库设计
 
 本课题使用的是Mysql数据库，使用Django自带的Models模板创建数据库。包括以下数据表：
 
-##### Users表
+###### Users表
 
 键|说明
 --|--
@@ -173,7 +254,7 @@ is_active|设置为True表示用户可以登录
 date_joined|记录用户注册时间
 nickname|用户昵称
 
-##### Devices表
+###### Devices表
 
 键|说明
 --|--
@@ -182,7 +263,7 @@ devicename|设备用户名，用于设备登录Mosquitto服务器
 password|密码，不存储明文密码
 nickname|设备昵称
 
-##### Sensors表
+###### Sensors表
 
 键|说明
 --|--
@@ -190,7 +271,7 @@ id|主键，标识一种传感器
 sensorname|一种传感器的名称
 sensorurl|访问一种传感器的url模板
 
-##### DevicesSensors表
+###### DevicesSensors表
 
 键|说明
 --|--
@@ -199,7 +280,7 @@ sensorcnt|某个设备拥有某种传感器的数量
 device_id|外键，标识某个设备
 sensor_id|外键，标识某种传感器
 
-##### ACLs表
+###### ACLs表
 
 ACLs表具有两个功能，一方面记录了用户和设备的所属关系，另一方面作为Mosquitto服务器的访问控制列表。
 
@@ -212,7 +293,7 @@ rw|对某个主题的访问权限，1表示具有订阅权限，2表示具有�
 device_id|Devices表的外键，表示某个设备
 user_id|Users表的外键，表示某个用户
 
-#### RESTfull接口设计
+##### RESTfull接口设计
 
 为了提供结构清晰、符合标准、易于理解、扩展方便的API接口，更好地实现前后端分离，本课题使用REST原则设计了API接口，提供RESTful服务。后台提供的接口如下所示：
 
@@ -264,6 +345,8 @@ Mosquitto提供数据管理功能，机器人将传感器的数据通过Mosqui
 ##### 服务器程序timemachine
 
 服务器程序timemachine是一个多线程程序，它实现了超声波传感器、姿态传感器和激光传感器的保存和恢复历史数据的功能，通过订阅话题/{id}/{sensor_type}/{sensor_id}/timemachine接收控制命令，控制命令包括record_open、record_close、replay_open、replay_close。当timemachine接收到record_open命令时，就会开辟一条新的线程订阅话题/{id}/{sensor_type}/{sensor_id}/realtime，将接收到的数据保存到文件中，目前对于一个传感器只能保存一次历史数据，下次保存就会清空上次的历史数据；当timemachine接收到record_close命令时，就会取消订阅相应的话题，完成一次历史数据的保存工作；当接收到replay_open时，timemachine就会读取对应话题的历史数据文件，将历史数据发布到话题/{id}/{sensor_type}/{sensor_id}/replay上，外部程序就可以像订阅realtime一样接收到历史数据；当接收到replay_close时，timemachine就会停止发布replay消息，完成一次历史数据的发送工作。
+
+### 本章小结
 
 ## 系统测试
 
@@ -337,5 +420,7 @@ Mosquitto提供数据管理功能，机器人将传感器的数据通过Mosqui
 - 在构建项目成功后，执行命令`./start.sh`启动所有容器，之后执行命令`./stop.sh`关闭所有容器
 
 ### 运行效果
+
+### 本章小结
 
 ## 结论
