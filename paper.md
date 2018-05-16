@@ -127,14 +127,14 @@ LEP将数据采集和数据显示分离，数据采集端对应的是LEPD(LEP D
 
 在机器人上运行mjpg-streamer程序，通过使用input_uvc组件获取USB摄像头的JPEG格式图像，使用output_http组件在机器人上开启HTTP服务器，外部可以通过访问HTTP服务器获取JPEG格式图像。在编译好的mjpg-streamer项目下找到可执行文件mjpg_streamer，在机器人端执行以下命令开启视频传输：
 
-```
+```bash
 ./mjpg_streamer -i "./input_uvc.so" -o "./output_http.so -w ./www"
 ```
 
 执行上述命令后，默认情况下，会在机器人端的8080端口开启HTTP服务器，通过访问HTTP服务器相应的URL就可以获取视频数据。  
 客户端使用socket连接机器人端的HTTP服务器。socket可以使用HTTP协议与HTTP服务器进行通信。HTTP协议是纯文本协议，意味着使用socket与服务器建立连接后，直接传递纯文本就可以了。客户端的MjpegClient负责与机器人进行视频传输。通过调用MjpegClient的run方法向机器人端的HTTP服务器发送请求，为了获取机器人采集到的视频数据，需要向HTTP服务器发送GET请求，服务器通过GET请求携带的action参数来进行不同的处理，将action参数设置为stream可以获得视频流数据。
 
-```
+```cpp
 void MjpegClient::run()
 {
     imageBuffer.clear();                //imageBuffer存放一张JPEG图片
@@ -150,7 +150,7 @@ void MjpegClient::run()
 
 客户端发送请求之后，利用Qt的信号机制，当接收到HTTP服务器的响应后，会调用MjpegClient的recvMjpeg方法。recvMjpeg方法主要完成接收一张完整的JPEG图像的任务。使用socket接收JPEG图像的关键在于判断图像的起始标记和结束标记。JPEG文件内容分为两个部分：标记码和压缩数据。标记码由两个字节组成，每种标记码的第一个字节都是0xFF，后一个字节用来区分不同的标记码，SOI(Start of Image)标记码为0xFFD8，EOI(End of Image)标记码为0xFFD9。因此在socket接收到的数据中，从0xFFD8到0xFFD9之间的数据就构成一张完整JPEG图像。需要注意的是每次socket接收的数据不一定就是一张完整的JPEG图像，可能一张图像被分成多次发送，这样需要保留每次socket接收的数据，直到在接收缓冲区中检测到EOI标记码才可以确定接收到一张完整的图像。
 
-```
+```cpp
 void MjpegClient::recvMjpeg()
 {
     char lastByte='\0';
@@ -185,7 +185,7 @@ void MjpegClient::recvMjpeg()
 
 本课题使用的手柄型号为Logitech Extreme 3D Pro，Linux内核自带手柄驱动joystick，因此可以通过读设备文件来获得手柄的输入信息，获取手柄的输入信息非常容易，但是每款手柄的按键都有自己的编码方式，加上本课题使用的手柄官方并没有给出按键的编码表，因此本课题使用的是Wisconsin Robotics公司开源的Joystick Library。Joystick Library是一个跨平台的解决方案，支持获取多款手柄的控制信息，使用起来非常方便。客户端的JoystickClient负责读取手柄的控制信息，并将手柄控制信息通过socket发送给机器人端。JoystickClient继承自QThread，每个实例都是一条独立的线程，这样在读取手柄控制信息的同时不会阻塞主界面的运行。JoystickClient的run方法是主循环，主要负责初始化连接。
 
-```
+```cpp
 void JoystickClient::run(){
     while (es.GetNumberConnected() < 1);        //等待手柄连接
 
@@ -203,7 +203,7 @@ void JoystickClient::run(){
 
 es对象的类型是Extreme3DProService，由开源库Joystick Library提供，可以用于读取Logitech Extreme 3D Pro手柄所有按键的输入，本课题实现的客户端只需要获取手柄x轴和y轴的输入，x轴和y轴的输入范围为[-100, 100]之间。获取x轴和y轴的输入之后，将其发送给机器人，机器人获取到输入后，传递给底层控制模块，控制机器人运动。有关机器人端底层控制模块由团队里的另一个同学开发。
 
-```
+```cpp
 void JoystickClient::check(int id){
     int x, y;
     if(!es.GetX(id, x)) //获取x轴输入
@@ -222,12 +222,262 @@ void JoystickClient::check(int id){
 
 基于服务器的机器人后台管理系统实现了以下功能：
 
-- 用户管理功能。包括用户注册、登录、注销
+- 用户管理功能。包括用户注册、登录、注销、获取用户信息以及修改用户信息。
 - 机器人管理功能。包括添加删除机器人、静态地为机器人添加或删除传感器以及创建或删除传感器类型
 - 数据管理功能。机器人将各种传感器信息上传到服务器后台，既可以实时可视化数据，也可以将数据保存到服务器，方便以后查看
 - 远程控制机器人功能。远程通过服务器控制机器人移动
 
+#### 功能模块设计
+
+##### 用户管理模块
+
+用户管理模块主要实现的功能包括用户注册、用户登录、用户注销、获取用户信息以及修改用户信息。  
+用户注册时需要提供信息包括用户名、密码和昵称，其中用户名和密码用于下次登录，用户名用于区分用户，因此用户名是唯一的，昵称是用户附加属性；用户登录时需要提供正确的用户名和密码才能登录成功；注销用户会从服务器上删除一切与用户有关的信息，并且此操作不可逆。  
+能够获取到的用户信息包括昵称和用户的机器人列表。能够修改的用户信息包括密码、昵称以及用户的机器人列表。  
+本课题实现的用户管理模块将用户分为普通用户和超级用户。普通用户和超级用户的权限不同，普通用户只能访问属于他们的机器人，不能进入WEB后台管理界面；超级用户可以访问所有创建的机器人，可以进入WEB后台管理界面。通过访问RESTful接口注册的用户均为普通用户，超级用户可以由管理员在后台添加。
+
+##### 机器人管理模块
+
+机器人管理模块主要实现的功能包括添加删除机器人、获取修改机器人信息以及创建删除传感器类型。  
+对于一个新用户来说，其机器人列表为空，用户可以通过创建一个全新的机器人或者使用已有机器人的id添加机器人到其设备列表中。可以向机器人的创建者索取机器人的id，需要注意的是，一旦暴露了机器人的id，对方通过机器人的id进行添加后，也会成为机器人的所有者，拥有包括删除机器人在内的所有权限。创建机器人时，需要提供的信息与用户注册类似，需要用户名、密码和机器人的昵称，注意创建机器人的用户名和密码在机器人端的编程中，用于登录Mosquitto代理服务器，不能用于登录机器人管理系统。  
+能够获取到的机器人信息包括用户名、昵称和机器人的传感器列表，能够修改的机器人信息除了机器人的密码、昵称外，还可以动态配置机器人的传感器。关于动态配置传感器的功能，最初的设计是当用户在机器人管理系统上配置虚拟机器人的传感器时，服务器会告知对应的实体机器人，实体机器人也能动态地配置传感器。但是由于时间和精力有限，本课题实现的系统只能在机器人管理系统上动态地配置虚拟机器人传感器的类型和数目，对于实体机器人而言，需要根据虚拟机器人的配置手动修改机器人端的程序，还未能实现实体机器人动态配置的功能。目前实现的设计是，首先在机器人管理系统上创建一个虚拟机器人，获得虚拟机器人的ID号、登录Mosquitto代理服务器的用户名和密码，按照实际机器人连接的传感器类型和数量为其添加传感器；接着根据机器人连接的传感器类型和数量，为实体机器人编写与服务器端通信的程序，本课题实现了一个可移植的机器人端的程序，需要根据实际连接传感器的数量进行修改，注意为了登录Mosquitto代理服务器，需要修改机器人端程序的用户名和密码为注册虚拟机器人时使用的用户名和密码，修改机器人端程序的话题中的ID号为虚拟机器人的ID号，这样实体机器人和机器人管理系统上的虚拟机器人才能对应起来。  
+本课题实现的机器人端程序支持的传感器类型包括超声波传感器、姿态传感器以及激光传感器，因为实体机器人与服务器之间通过MQTT协议进行通讯，可以通过增加订阅/发布话题的方式提供对其他传感器的支持，比如，为了增加传感器类型，需要通过相应的RESTful接口注册传感器，并且需要修改机器人端的程序使其能够采集新传感器的数据并将其发布到对应的MQTT话题上，MQTT话题的设计遵循一定的规则。
+
+##### 数据处理模块
+
+数据处理模块由一组服务器程序组成，负责对机器人上传到服务器的数据进行处理。Mosquitto代理服务器实现的只是数据的转发，需要通过编写服务器程序来对数据进行处理才能形成各种各样的功能。本课题实现的服务器程序有monitor和timemachine。  
+服务器程序monitor的主要工作是订阅/{id}/monitor/{sub_monitor}/raw话题，获取机器人内部资源使用情况的原始数据，机器人端程序中的Monitor类负责采集机器人内部资源的使用情况，并将其发布到话题/{id}/monitor/{sub_monitor}/raw上。服务器程序monitor接收到原始数据后，对其处理以便进行可视化显示，将处理后的数据发布到话题/{id}/monitor/{sub_monitor}上，这样外部程序就可以通过订阅该话题进行数据的可视化显示。服务器程序monitor和机器人端的Monitor类是对开源项目LEP中有关代码进行封装。  
+服务器程序timemachine是一个多线程程序，它实现了超声波传感器、姿态传感器和激光传感器的保存和恢复历史数据的功能，通过订阅话题/{id}/{sensor_type}/{sensor_id}/timemachine接收控制命令，控制命令包括record_open、record_close、replay_open、replay_close。当timemachine接收到record_open命令时，就会开辟一条新的线程订阅话题/{id}/{sensor_type}/{sensor_id}/realtime，将接收到的数据保存到文件中，目前对于一个传感器只能保存一次历史数据，下次保存就会清空上次的历史数据；当timemachine接收到record_close命令时，就会取消订阅相应的话题，完成一次历史数据的保存工作；当接收到replay_open时，timemachine就会读取对应话题的历史数据文件，将历史数据发布到话题/{id}/{sensor_type}/{sensor_id}/replay上，此时外部程序订阅对应的replay话题，就可以像订阅realtime一样接收到历史数据；当接收到replay_close时，timemachine就会停止发布replay消息，完成一次历史数据的发送工作。
+
 ### 系统实现
+
+本课题实现的基于服务器的机器人管理系统使用Django作为网络框架，Mosquitto作为MQTT代理服务器，Mysql作为数据库管理系统。
+
+#### 用户管理模块
+
+用户管理模块涉及用户注册、登录、登出、注销、获取信息以及修改信息的实现。
+
+##### 用户注册
+
+用户通过访问RESTful接口/users/，并通过POST请求提交用户名、密码和昵称即可完成注册，需要注意的是用户名必须是唯一的，如果用户名已经被注册，就会注册失败。
+
+```python
+@api_view(('POST',))
+def users(request, format=None):
+    if request.method == 'POST':
+        # 注册用户
+        req = request.data
+        try:
+            user = Users(username=req['username'], password=make_password(req['password']), nickname=req['nickname'])
+            # 验证username是否唯一
+            user.full_clean()
+        except Exception as e:
+            return Response('require username, password, nickname', status=status.HTTP_400_BAD_REQUEST)
+        user.save()
+        return Response(status=status.HTTP_201_CREATED)
+```
+
+##### 用户登录和登出
+
+用户通过访问RESTful接口/sessions/，如果通过POST请求提交正确的用户名和密码，即可实现登录功能；如果发送DELETE请求，就会使当前登录的用户退出登录。  
+通过本课题实现的RESTful接口，非常容易进行前后端分离的设计，注意在进行前后端分离设计中，Django需要引入django-cors-headers模块解决CORS(Cross-origin resource sharing，跨域资源共享)问题；为了提高安全性，Django默认还开启了防止csrf(Cross-site request forgery, 跨站伪造请求)功能，对每个一个post请求都进行检查，因此在登录成功后，前端需要获取cookie中的csrftoken，将该值赋给X-CSRFToken，在以后的每次请求头中都加上X-CSRFToken才能通过Django的csrf验证。
+
+```python
+@api_view(('POST', 'DELETE'))
+def session(request, format=None):
+    if request.method == 'POST':
+        # 登陆
+        req = request.data;
+        try:
+            username = req['username']
+            password = req['password']
+        except KeyError:
+            return Response('require username, password', status=status.HTTP_400_BAD_REQUEST)
+        user = authenticate(username=username, password=password)
+        if user:
+            login(request, user)
+            csrftoken = request.META["CSRF_COOKIE"]
+            return Response(csrftoken, status=status.HTTP_200_OK)
+        else:
+            return Response('username or password error', status=status.HTTP_400_BAD_REQUEST)
+    elif request.method == 'DELETE':
+        # 注销
+        logout(request)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+```
+
+##### 用户注销、获取信息以及修改信息
+
+用户通过访问RESTful接口/users/{username}/，根据不同的请求方式实现不同的功能。GET请求用于获取当前登录用户的信息，POST请求用于修改当前登录用户的信息，DELETE请求用于注销当前用户。
+
+```python
+@login_required
+@api_view(('GET', 'POST', 'DELETE'))
+def user(request, username, format=None):
+    if request.method=='GET':
+        if request.user.username != username:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        else:
+            serializer = UserSerializer(request.user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+    elif request.method == 'POST':
+        req = request.data
+        user = request.user
+
+        if 'nickname' in req.keys():
+            user.nickname = req['nickname']
+        if 'password' in req.keys():
+            user.password = make_password(req['password'])
+
+        device_list = []
+        if 'device_list' in req.keys():
+            # 删除用户所有的设备, 同时在app_acls表中删除用户对设备的权限
+            device_list = req['device_list']
+            ACLs.objects.filter(user=user).delete()
+
+        for item in device_list:
+            # 判断设备是否存在
+            device = Devices.objects.filter(id=item['id'])
+            if not device.exists():
+                return Response('device id is illegal', status=status.HTTP_400_BAD_REQUEST)
+            device = device[0]
+
+            # 判断用户是否拥有此设备, 同时在app_acls表中增加对设备的权限
+            if not user.devices.filter(id=device.id).exists():
+                ACLs.objects.create(user=user, device=device, clientname=user.username, topic='/'+str(device.id)+'/#', rw=2).save()
+
+        user.save()
+        return Response(status=status.HTTP_200_OK)
+    elif request.method == 'DELETE':
+        request.user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+```
+
+#### 机器人管理模块
+
+机器人管理模块主要实现的功能包括添加删除机器人、获取修改机器人信息以及创建删除传感器类型。
+
+##### 添加机器人
+
+用户通过访问RESTful接口/devices/，将新机器人的用户名、密码和昵称以POST的方式传递给后台，就可以新建一个机器人。需要注意的是，机器人的用户名必须唯一。~~新添加的机器人不会出现在用户的机器人列表中。~~  
+
+```python
+@login_required
+@api_view(('POST', ))
+def devices(request, format=None):
+    if request.method == 'POST':
+        req = request.data
+        try:
+            newdev = Devices(devicename=req['devicename'], password=make_password(req['password']), nickname=req['nickname'])
+            newdev.save()
+        except Exception as e:
+            return Response('require devicename, password, nickname', status=status.HTTP_400_BAD_REQUEST)
+        # # 更新用户的设备列表
+        # request.user.devices.add(newdev)
+        ACLs.objects.create(device=newdev, clientname=newdev.devicename, topic='/'+str(newdev.id)+'/#', rw=2).save()
+        return Response(status=status.HTTP_201_CREATED)
+```
+
+##### 删除机器人、获取修改机器人信息
+
+以DELETE的方式访问RESTful接口/devices/{device_id}/，如果当前登录用户拥有该机器人，那么该机器人的所有信息都会从后台数据库删除，不管是否还有其他用户拥有该机器人。如果只是希望将机器人从当前用户的机器人列表移除，应该以DELETE的方式访问接口/users/{username}/{deviceid}/。  
+以GET方式访问接口/devices/{device_id}/，如果当前登录用户拥有device_id的机器人，就会返回该机器人的信息。  
+以POST方式访问接口/devices/{device_id}/，可以修改device_id的机器人的信息，包括修改机器人的传感器列表。
+
+```python
+@login_required
+@api_view(('GET', 'POST', 'DELETE'))
+def device(request, deviceid, format=None):
+    # 判断当前登陆用户是否拥有此设备
+    user = request.user
+    dev = user.devices.filter(id=deviceid)
+    if not dev.exists():
+        return Response("this device doesn't belong to you", status=status.HTTP_400_BAD_REQUEST)
+    dev = dev[0]
+    if request.method == 'GET':
+        serializer = DeviceSerializer(dev)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    elif request.method == 'POST':
+        req = request.data
+
+        if 'devicename' in req.keys():
+            dev.devicename = req['devicename']
+            dev.save()
+        
+        sensor_list = []
+        if 'sensor_list' in req.keys():
+            sensor_list = req['sensor_list']
+        
+        for sensor in sensor_list:
+            if sensor['sensorcnt'] < 0:
+                # 非法数据
+                return Response('sensorcnt must greater or equal than 0', status=status.HTTP_400_BAD_REQUEST)
+            s = Sensors.objects.filter(sensorname=sensor['sensorname'])
+            if not s.exists():
+                # 这种类型的传感器不存在
+                return Response('no this kind of sensor', status=status.HTTP_400_BAD_REQUEST)
+            s = s[0]
+
+            # 判断设备是否已经拥有这种传感器
+            ds = dev.devicessensors_set.filter(sensor=s)
+            if not ds.exists():
+                if sensor['sensorcnt'] > 0:
+                    # 为设备添加新的传感器
+                    ds = DevicesSensors(device=dev, sensor=s, sensorcnt=sensor['sensorcnt'])
+                    ds.save()
+            else:
+                # 修改设备的传感器数目
+                ds = ds[0]
+                if sensor['sensorcnt'] > 0:
+                    ds.sensorcnt = sensor['sensorcnt']
+                    ds.save()
+                else:
+                    ds.delete()
+        return Response(status=status.HTTP_200_OK)
+    elif request.method == 'DELETE':
+        dev.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+```
+
+##### 创建、查看、删除传感器类型
+
+用户通过访问接口/sensors/，将新传感器的sensorname和sensorurl以POST的方式发送给后台，如果没有存在重复的sensorname，就可以创建成功。sensorname为新传感器类型的名字，sensorurl与MQTT话题的设计有关。  
+用户通过以GET请求访问/sensors/，就会得到当前管理系统中所有传感器类型的信息，包括sensorname和sensorurl。
+
+```python
+@login_required
+@api_view(('GET', 'POST',))
+def sensors(request, format=None):
+    if request.method == 'GET':
+        serializer = SensorsSerializer(Sensors.objects.all(), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    elif request.method == 'POST':
+        req = request.data
+        try:
+            newsensor = Sensors.objects.create(sensorname=req['sensorname'], sensorurl=req['sensorurl'])
+            newsensor.save()
+        except Exception as e:
+            return Response('require sensorname, sensorurl', status=status.HTTP_400_BAD_REQUEST)
+        # 注意这里并没有将新添加的传感器添加到设备上
+        return Response(status=status.HTTP_201_CREATED)
+```
+
+用户通过DELETE请求访问/sensors/{sensorname}/，如果系统中存在sensorname对应的传感器类型，就会删除与这种传感器相关的信息，包括机器人与这种传感器的所属关系也会被移除。
+
+```python
+@login_required
+@api_view(('DELETE',))
+def sensor(request, sensorname, formate=None):
+    if request.method == 'DELETE':
+        # 判断sensorname是否存在
+        sensors = Sensors.objects.filter(sensorname=sensorname)
+        if not sensors.exists():
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+        sensors.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+```
+
+#### 数据处理模块
 
 #### 使用Django作为WEB服务器
 
