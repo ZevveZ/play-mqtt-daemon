@@ -246,8 +246,105 @@ void JoystickClient::check(int id){
 ##### 数据处理模块
 
 数据处理模块由一组服务器程序组成，负责对机器人上传到服务器的数据进行处理。Mosquitto代理服务器实现的只是数据的转发，需要通过编写服务器程序来对数据进行处理才能形成各种各样的功能。本课题实现的服务器程序有monitor和timemachine。  
-服务器程序monitor的主要工作是订阅/{id}/monitor/{sub_monitor}/raw话题，获取机器人内部资源使用情况的原始数据，机器人端程序中的Monitor类负责采集机器人内部资源的使用情况，并将其发布到话题/{id}/monitor/{sub_monitor}/raw上。服务器程序monitor接收到原始数据后，对其处理以便进行可视化显示，将处理后的数据发布到话题/{id}/monitor/{sub_monitor}上，这样外部程序就可以通过订阅该话题进行数据的可视化显示。服务器程序monitor和机器人端的Monitor类是对开源项目LEP中有关代码进行封装。  
-服务器程序timemachine是一个多线程程序，它实现了超声波传感器、姿态传感器和激光传感器的保存和恢复历史数据的功能，通过订阅话题/{id}/{sensor_type}/{sensor_id}/timemachine接收控制命令，控制命令包括record_open、record_close、replay_open、replay_close。当timemachine接收到record_open命令时，就会开辟一条新的线程订阅话题/{id}/{sensor_type}/{sensor_id}/realtime，将接收到的数据保存到文件中，目前对于一个传感器只能保存一次历史数据，下次保存就会清空上次的历史数据；当timemachine接收到record_close命令时，就会取消订阅相应的话题，完成一次历史数据的保存工作；当接收到replay_open时，timemachine就会读取对应话题的历史数据文件，将历史数据发布到话题/{id}/{sensor_type}/{sensor_id}/replay上，此时外部程序订阅对应的replay话题，就可以像订阅realtime一样接收到历史数据；当接收到replay_close时，timemachine就会停止发布replay消息，完成一次历史数据的发送工作。
+服务器程序monitor的主要工作是与机器人端程序的Monitor类配合，机器人端程序通过采集机器人内部资源的使用情况，包括CPU、内存以及I/O等，将其发布到相应的MQTT话题，服务器程序monitor通过订阅对应的话题获取原始的数据，对原始数据进行处理以便进行可视化显示，将处理完的数据发布到相应的MQTT话题，外部程序通过订阅该话题即可进行可视化显示。  
+服务器程序timemachine通过MQTT话题接收外部程序发送的命令执行对应的动作。目前实现的命令包括record_open、record_close、replay_open、replay_close。通过这些命令，timemachine能够实现保存和恢复传感器的历史数据的功能。目前timemachine对于一个传感器只能保存一份历史数据，下次保存会清空上次保存的数据。
+
+#### 数据库设计
+
+本课题使用的是Mysql数据库，使用Django自带的Models模板创建数据库。包括以下数据表：
+
+##### Users表
+
+键|说明
+--|--
+id|主键，标识每个用户
+password|密码，不存储明文密码
+last_login|记录最后登录的时间
+is_superuser|超级用户标志位，超级用户可以进入Django管理后台，并且可以绕开Mosquitto的权限检查
+username|用户名，用于登录WEB服务器和Mosquitto服务器
+first_name|用户名字
+last_name|用户姓氏
+email|用户邮件
+is_staff|设置为True表示用户可以进入Django后台管理
+is_active|设置为True表示用户可以登录
+date_joined|记录用户注册时间
+nickname|用户昵称
+
+##### Devices表
+
+键|说明
+--|--
+id|主键，标识每个设备
+devicename|设备用户名，用于设备登录Mosquitto服务器
+password|密码，不存储明文密码
+nickname|设备昵称
+
+##### Sensors表
+
+键|说明
+--|--
+id|主键，标识一种传感器
+sensorname|一种传感器的名称
+sensorurl|访问一种传感器的url模板
+
+##### DevicesSensors表
+
+键|说明
+--|--
+id|主键，标识设备和传感器的所属关系
+sensorcnt|某个设备拥有某种传感器的数量
+device_id|外键，标识某个设备
+sensor_id|外键，标识某种传感器
+
+##### ACLs表
+
+ACLs表具有两个功能，一方面记录了用户和设备的所属关系，另一方面作为Mosquitto服务器的访问控制列表。
+
+键|说明
+--|--
+id|主键，标识一种访问权限或者设备所属关系
+clientname|登录Mosquitto服务器的账号，可以是Users表的username或者是Devices表的devicename
+topic|某个Mosquitto主题
+rw|对某个主题的访问权限，1表示具有订阅权限，2表示具有订阅和发布权限
+device_id|Devices表的外键，表示某个设备
+user_id|Users表的外键，表示某个用户
+
+#### RESTfull接口设计
+
+为了提供结构清晰、符合标准、易于理解、扩展方便的API接口，更好地实现前后端分离，本课题使用REST原则设计了API接口，提供RESTful服务。后台提供的接口如下所示：
+
+URL|Method|说明
+--|--|--|
+/users/|POST|注册新用户，用户名只能由字母数字组成
+/session/|POST|用于用户登录
+/session/|DELETE|用于用户登出
+/users/{username}/|GET|返回username用户的信息
+/users/{username}/|POST|修改username用户的信息、增删用户设备列表
+/users/{username}/|DELETE|删除username用户，与该用户有关的信息都会被删除
+/users/{username}/{deviceid}/|POST|在username用户的设备列表中添加deviceid设备
+/users/{username}/{deviceid}/|DELETE|在username用户的设备列表中移除deviceid设备
+/devices/|POST|添加新的设备, 注意新设备不会添加到当前登陆用户的设备列表中
+/devices/{device_id}/|GET|返回device_id设备的信息
+/devices/{device_id}/|POST|修改device_id设备的信息
+/devices/{device_id}/|DELETE|删除device_id设备
+/sensors/|GET|返回目前支持的传感器信息,包括sensorname和sensorurl
+/sensors/|POST|添加新的传感器, 注意新添加的传感器并没有添加到任何设备上
+
+#### 话题设计
+
+话题|说明
+--|--
+/{id}/cmd|用于向机器人发送命令，可选的命令包括monitor_open, monitor_close, mcamera_open, mcamera_close, bundle_open, bundle_close,用于开关各种传感器
+/{id}/monitor/{sub_monitor}/raw|机器人内部运行状态的原始数据，由服务器程序monitor进行订阅处理,sub_monitor可选cpu_stat、memory_procrank等
+/{id}/monitor/{sub_monitor}|此话题由服务器程序monitor进行发布，外部程序可以订阅此话题进行数据的可视化显示
+/{id}/mcamera/{mcamera_id}|机器人将视频数据发送到该话题上，外部程序订阅此话题可以实时接收视频数据；mcamera_id从0开始编号，如果有多个摄像头，编号依次递增
+/{id}/{sensor_type}/{sensor_id}/realtime|实时显示传感器数据，sensor_type可选sonar、laser、gesture；sensor_id从0开始编号，如果有多个同种类型的传感器，编号依次递增
+/{id}/{sensor_type}/{sensor_id}/replay|向对应的timemachine发送命令replay_open，服务器程序timemachine就会读取保存的历史数据进行发送，外部程序订阅此话题可以实现接收历史数据的功能
+/{id}/{sensor_type}/{sensor_id}/timemachine|由服务器程序timemachine进行订阅，主要用于接收外部程序的命令，可选的命令包括record_open, record_close, replay_open, replay_close
+
+#### 安全设计
+
+本课题实现的基于服务端的机器人管理系统，部署在接入互联网的服务器上。互联网环境十分复杂，不经过加密的信息非常容易被窃取和篡改。本系统在一开始设计时就考虑到了安全问题，机器人和客户端都需要通过用户名和密码进行身份认证，认证通过才能与服务器进行通信，并且通信全程使用TLS加密。本课题实现的系统还借助MQTT协议提供的权限系统，严格限制每个访问者对MQTT话题的权限。经过上述几重安全措施，使得本系统能够实现较好的安全性。
 
 ### 系统实现
 
@@ -403,11 +500,9 @@ def device(request, deviceid, format=None):
         if 'devicename' in req.keys():
             dev.devicename = req['devicename']
             dev.save()
-        
         sensor_list = []
         if 'sensor_list' in req.keys():
             sensor_list = req['sensor_list']
-        
         for sensor in sensor_list:
             if sensor['sensorcnt'] < 0:
                 # 非法数据
@@ -479,122 +574,100 @@ def sensor(request, sensorname, formate=None):
 
 #### 数据处理模块
 
-#### 使用Django作为WEB服务器
-
-Django提供与用户管理、机器人管理相关的功能。
-
-##### 数据库设计
-
-本课题使用的是Mysql数据库，使用Django自带的Models模板创建数据库。包括以下数据表：
-
-###### Users表
-
-键|说明
---|--
-id|主键，标识每个用户
-password|密码，不存储明文密码
-last_login|记录最后登录的时间
-is_superuser|超级用户标志位，超级用户可以进入Django管理后台，并且可以绕开Mosquitto的权限检查
-username|用户名，用于登录WEB服务器和Mosquitto服务器
-first_name|用户名字
-last_name|用户姓氏
-email|用户邮件
-is_staff|设置为True表示用户可以进入Django后台管理
-is_active|设置为True表示用户可以登录
-date_joined|记录用户注册时间
-nickname|用户昵称
-
-###### Devices表
-
-键|说明
---|--
-id|主键，标识每个设备
-devicename|设备用户名，用于设备登录Mosquitto服务器
-password|密码，不存储明文密码
-nickname|设备昵称
-
-###### Sensors表
-
-键|说明
---|--
-id|主键，标识一种传感器
-sensorname|一种传感器的名称
-sensorurl|访问一种传感器的url模板
-
-###### DevicesSensors表
-
-键|说明
---|--
-id|主键，标识设备和传感器的所属关系
-sensorcnt|某个设备拥有某种传感器的数量
-device_id|外键，标识某个设备
-sensor_id|外键，标识某种传感器
-
-###### ACLs表
-
-ACLs表具有两个功能，一方面记录了用户和设备的所属关系，另一方面作为Mosquitto服务器的访问控制列表。
-
-键|说明
---|--
-id|主键，标识一种访问权限或者设备所属关系
-clientname|登录Mosquitto服务器的账号，可以是Users表的username或者是Devices表的devicename
-topic|某个Mosquitto主题
-rw|对某个主题的访问权限，1表示具有订阅权限，2表示具有订阅和发布权限
-device_id|Devices表的外键，表示某个设备
-user_id|Users表的外键，表示某个用户
-
-##### RESTfull接口设计
-
-为了提供结构清晰、符合标准、易于理解、扩展方便的API接口，更好地实现前后端分离，本课题使用REST原则设计了API接口，提供RESTful服务。后台提供的接口如下所示：
-
-URL|Method|说明
---|--|--|
-/users/|POST|注册新用户，用户名只能由字母数字组成
-/session/|POST|用于用户登录
-/session/|DELETE|用于用户登出
-/users/{username}/|GET|返回username用户的信息
-/users/{username}/|POST|修改username用户的信息、增删用户设备列表
-/users/{username}/|DELETE|删除username用户，与该用户有关的信息都会被删除
-/users/{username}/{deviceid}/|POST|在username用户的设备列表中添加deviceid设备
-/users/{username}/{deviceid}/|DELETE|在username用户的设备列表中移除deviceid设备
-/devices/|POST|添加新的设备, 注意新设备不会添加到当前登陆用户的设备列表中
-/devices/{device_id}/|GET|返回device_id设备的信息
-/devices/{device_id}/|POST|修改device_id设备的信息
-/devices/{device_id}/|DELETE|删除device_id设备
-/sensors/|GET|返回目前支持的传感器信息,包括sensorname和sensorurl
-/sensors/|POST|添加新的传感器, 注意新添加的传感器并没有添加到任何设备上
-
-### 使用Mosquitto作为MQTT代理服务器
-
-Mosquitto提供数据管理功能，机器人将传感器的数据通过Mosquitto服务器发布在某个话题上，服务器程序订阅感兴趣的话题，就可以获得对应的数据进行处理。
-
-#### 话题设计
-
-话题|说明
---|--
-/{id}/cmd|用于向机器人发送命令，可选的命令包括monitor_open, monitor_close, mcamera_open, mcamera_close, bundle_open, bundle_close,用于开关各种传感器
-/{id}/monitor/{sub_monitor}/raw|机器人内部运行状态的原始数据，由服务器程序monitor进行订阅处理,sub_monitor可选cpu_stat、memory_procrank等
-/{id}/monitor/{sub_monitor}|此话题由服务器程序monitor进行发布，外部程序可以订阅此话题进行数据的可视化显示
-/{id}/mcamera/{mcamera_id}|机器人将视频数据发送到该话题上，外部程序订阅此话题可以实时接收视频数据；mcamera_id从0开始编号，如果有多个摄像头，编号依次递增
-/{id}/{sensor_type}/{sensor_id}/realtime|实时显示传感器数据，sensor_type可选sonar、laser、gesture；sensor_id从0开始编号，如果有多个同种类型的传感器，编号依次递增
-/{id}/{sensor_type}/{sensor_id}/replay|向对应的timemachine发送命令replay_open，服务器程序timemachine就会读取保存的历史数据进行发送，外部程序订阅此话题可以实现接收历史数据的功能
-/{id}/{sensor_type}/{sensor_id}/timemachine|由服务器程序timemachine进行订阅，主要用于接收外部程序的命令，可选的命令包括record_open, record_close, replay_open, replay_close
-
-#### 数据采集
-
-本课题采集的数据包括超声波测距信息、姿态传感器空间信息、激光测距信息、摄像头图像信息以及机器人内部资源使用情况。超声波传感器、姿态传感器和激光传感器的数据通过编写stm32单片机程序进行采集，摄像头图像信息借助mjpg-streamer开源项目进行采集，通过移植LEP开源项目获取机器人内部资源使用情况。
-
-#### 数据处理
-
-机器人将采集的数据通过MQTT协议发送到服务器，在服务器端编写服务器程序，通过订阅相关的话题获取数据进行处理，借助MQTT协议，编写服务器程序非常容易。目前实现的服务器程序有monitor和timemachine。
+本课题实现的数据处理模块由服务器程序monitor和timemachine组成。
 
 ##### 服务器程序monitor
 
-服务器程序monitor的主要工作是订阅/{id}/monitor/{sub_monitor}/raw话题，获取机器人内部资源使用情况的原始数据，参考LEP开源项目的数据处理方式，对原始数据进行处理以便进行可视化显示，将处理后的数据发布到话题/{id}/monitor/{sub_monitor}上，这样外部程序就可以通过订阅该话题进行数据的可视化显示。
+服务器程序monitor的实现参考了开源项目LEP，并结合本课题机器人管理系统的实际需要，选取了其中表示CPU、内存、I/O状态的13个表格进行移植。对于CPU密集型的程序来说，使用多线程并不能提高程序的执行效率，monitor是CPU密集型的程序，因此没有采用多线程设计。monitor订阅的话题为/+/monitor/+/raw，在MQTT话题的表示中，+表示通配符，可以匹配一个层级。第一个+号匹配任意一个机器人id号，第二个+号匹配任意一种图表，比如cpu_stat、io_status等等。monitor通过订阅的话题，可以接收来自任意机器人的原始内部状态信息，monitor会对其进行处理以便在前端页面上进行显示，数据处理的方式以及前端显示的方式移植自LEP项目。monitor会将处理完的数据发布到对应的/+/monitor/+上，第一个+号会被替换成机器人的id号，第二个+号会被替换成对应的图表类型。前端通过订阅/+/monitor/+话题，分别将两个+号进行替换就可以进行数据的可视化显示了。
 
-##### 服务器程序timemachine
+```python
+def on_connect(client, userdata, flags, rc):
+    client.subscribe('/+/monitor/+/raw')
 
-服务器程序timemachine是一个多线程程序，它实现了超声波传感器、姿态传感器和激光传感器的保存和恢复历史数据的功能，通过订阅话题/{id}/{sensor_type}/{sensor_id}/timemachine接收控制命令，控制命令包括record_open、record_close、replay_open、replay_close。当timemachine接收到record_open命令时，就会开辟一条新的线程订阅话题/{id}/{sensor_type}/{sensor_id}/realtime，将接收到的数据保存到文件中，目前对于一个传感器只能保存一次历史数据，下次保存就会清空上次的历史数据；当timemachine接收到record_close命令时，就会取消订阅相应的话题，完成一次历史数据的保存工作；当接收到replay_open时，timemachine就会读取对应话题的历史数据文件，将历史数据发布到话题/{id}/{sensor_type}/{sensor_id}/replay上，外部程序就可以像订阅realtime一样接收到历史数据；当接收到replay_close时，timemachine就会停止发布replay消息，完成一次历史数据的发送工作。
+def on_message(client, userdata, msg):
+    subservice = msg.topic.split('/')[3]
+    end = str.encode("lepdendstring")
+    serverResponse = msg.payload.replace(end, str.encode(''))
+    responseJsonDecoded = json.loads(serverResponse.decode())
+    response_lines = split_to_lines(responseJsonDecoded['result'])
+    # response_lines = responseJsonDecoded['result'].split('\n')
+    if(subservice == 'cpu_stat'):
+        data = cpu_stat(response_lines)
+    elif subservice == 'cpu_softirq':
+        data = cpu_softirq(response_lines)
+    elif subservice == 'cpu_avgload':
+        data = cpu_avgload(response_lines)
+    elif subservice == 'memory_procrank':
+        data = memory_procrank(response_lines)
+    elif subservice == 'io_status':
+        data = io_status(response_lines)
+    if(data):
+        topic = msg.topic[:-4]
+        client.publish(topic, json.dumps(data, ensure_ascii=False))
+```
+
+```js
+function onConnect() {
+    console.log('connected');
+    client.subscribe('/1/monitor/+');
+}
+function onMessageArrived(message) {
+    console.log(message.destinationName);
+    res = JSON.parse(message.payloadString);
+    if (message.destinationName == '/1/monitor/cpu_stat') {
+        cpuStatDonutChart.updateChartData(res);
+        cpuStatIdleChart.updateChartData(res);
+        cpuStatUserGroupChart.updateChartData(res);
+        cpuIrqGroupChart.updateChartData(res);
+        cpuIrqChart.updateChartData(res);
+    }else if (message.destinationName == '/1/monitor/cpu_softirq') {
+        cpuNettxIrqChart.updateChartData(res);
+        cpuNetrxIrqChart.updateChartData(res);
+        cputaskletIrqChart.updateChartData(res);
+        cpuhrtimerIrqChart.updateChartData(res);
+    }else if(message.destinationName == '/1/monitor/cpu_avgload'){
+        cpuAvgloadChart.updateChartData(res);
+    }else if(message.destinationName == '/1/monitor/memory_procrank'){
+        memoryFreePssStatChart.updateChartData(res);
+        memoryPssStatChart.updateChartData(res);
+    }else if(message.destinationName == '/1/monitor/io_status'){
+        ioStatChart.updateChartData(res);
+    }
+}
+```
+
+##### 服务器程序timemachine
+
+服务器程序timemachine是一个多线程程序，它实现了超声波传感器、姿态传感器和激光传感器的保存和恢复历史数据的功能，通过订阅话题/{id}/{sensor_type}/{sensor_id}/timemachine接收控制命令，控制命令包括record_open、record_close、replay_open、replay_close。当timemachine接收到record_open命令时，就会开辟一条新的线程订阅话题/{id}/{sensor_type}/{sensor_id}/realtime，将接收到的数据保存到文件中，目前对于一个传感器只能保存一次历史数据，下次保存就会清空上次的历史数据；当timemachine接收到record_close命令时，就会取消订阅相应的话题，完成一次历史数据的保存工作；当接收到replay_open时，timemachine就会读取对应话题的历史数据文件，将历史数据发布到话题/{id}/{sensor_type}/{sensor_id}/replay上，此时外部程序订阅对应的replay话题，就可以像订阅realtime一样接收到历史数据；当接收到replay_close时，timemachine就会停止发布replay消息，完成一次历史数据的发送工作。
+
+```python
+def on_connect(client, userdata, flags, rc):
+    client.subscribe('/+/+/+/timemachine')
+
+timemachines = {}
+def on_message(client, userdata, msg):
+    topic_prefix = msg.topic[:-12]
+    # what's the cmd?
+    cmd = msg.payload
+    if cmd == b'replay_open':
+        if topic_prefix not in timemachines:
+            replayer = Replayer(topic_prefix)
+            timemachines[topic_prefix]=replayer
+            replayer.open()
+    elif cmd == b'replay_close':
+        if topic_prefix in timemachines:
+            timemachines[topic_prefix].close()
+            del timemachines[topic_prefix]
+    elif cmd == b'record_open':
+        if topic_prefix not in timemachines:
+            recorder = Recorder(topic_prefix)
+            timemachines[topic_prefix]=recorder
+            recorder.open()
+    elif cmd == b'record_close':
+        if topic_prefix in timemachines:
+            timemachines[topic_prefix].close()
+            del timemachines[topic_prefix]
+```
 
 ### 本章小结
 
