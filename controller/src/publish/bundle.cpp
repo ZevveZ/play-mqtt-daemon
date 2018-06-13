@@ -89,20 +89,23 @@ void Bundle::run(){
     
     string msg;
 
+    // 读取usb串口获取传感器数据
     while((nr=read(ttyfd, buf, sizeof(buf)))>0){
         for(int i=0;i<nr;++i){
             if(buf[i]=='\n'){
                 string &&msg = genjson(string(val.begin()+1, val.end()), getts());
-                // send to different topic
                 switch (val[0])
                 {
                 case 's':
+                    // 发布超声波传感器数据
                     cli.publish(topic_sonar.c_str(), msg.c_str(), msg.length());
                     break;
                 case 'l':
+                    // 发布激光传感器数据
                     cli.publish(topic_laser.c_str(), msg.c_str(), msg.length());
                     break;
                 case 'g':
+                    // 发布姿态传感器数据
                     cli.publish(topic_gesture.c_str(), msg.c_str(), msg.length());
                     break;
                 }

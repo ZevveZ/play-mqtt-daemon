@@ -5,3 +5,4 @@
 /paho.mqtt.cpp/
 /main
 /play-mqtt-daemon.service
+/.vscode/

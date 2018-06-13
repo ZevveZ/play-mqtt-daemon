@@ -7,7 +7,6 @@
 #include <chrono>
 #include <signal.h>
 #include <mqtt/client.h>
-#include "camera.h"
 #include "monitor.h"
 #include "mjpegcamera.h"
 #include "bundle.h"
@@ -36,7 +35,6 @@ void sighandler(int sig){
 }
 
 void cleanup(void){
-	delete pcamera;
 	delete pmcamera;
 	delete pmonitor;
 	delete pbundle;
@@ -68,7 +66,6 @@ int main(){
 
     mqtt::client cli(SERVER_ADDRESS, CLIENT_ID);
 
-	pcamera = new Camera ("controller/src/publish/camera.sh");
 	pmcamera = new MjpegCamera(cli, "127.0.0.1", 8080, "/1/mcamera/0", "controller/src/publish/mcamera.sh");
 	pmonitor = new Monitor(cli, "127.0.0.1", 12307, "controller/src/publish/monitor.sh");
 	pbundle = new Bundle(cli, "/1/sonar/0/realtime", "/1/laser/0/realtime", "/1/gesture/0/realtime");
@@ -88,11 +85,7 @@ int main(){
 				cout << msg->get_topic() << ": " << msg->to_string() << endl;
 				
 				string cmd = msg->to_string();
-				if(cmd == "camera_open"){
-					pcamera->open();
-				}else if(cmd == "camera_close"){
-					pcamera->close();
-				}else if(cmd == "monitor_open"){
+				if(cmd == "monitor_open"){
 					pmonitor->open();
 				}else if(cmd == "monitor_close"){
 					pmonitor->close();
