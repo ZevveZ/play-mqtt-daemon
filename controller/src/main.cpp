@@ -19,12 +19,11 @@
 using namespace std;
 
 
-const string SERVER_ADDRESS	{ "ssl://222.201.144.236:8883" };
+const string SERVER_ADDRESS	{ "ssl://222.201.145.60:8883" };
 const string CLIENT_ID		{ "1" };
 const string TOPIC 			{ "/1/cmd" };
 const int  QOS = 1;
 
-Camera *pcamera;
 MjpegCamera *pmcamera;
 Monitor *pmonitor;
 Bundle *pbundle;

@@ -1,9 +1,10 @@
 #! /bin/bash
 EXECPATH=$PWD
-sudo apt update && sudo apt-get install build-essential gcc make cmake git libssl-dev libjpeg8-dev libev-dev linux-tools-common linux-tools-generic libncurses5-dev -y
+sudo apt update && sudo apt-get install build-essential gcc make cmake git libssl-dev libjpeg8-dev libev-dev linux-tools-generic libncurses5-dev -y
 
 # build paho.mqtt.c
-git clone https://github.com/eclipse/paho.mqtt.c.git
+rm -rf paho.mqtt.c
+git clone https://github.com/eclipse/paho.mqtt.c.git --depth 1
 cd paho.mqtt.c/
 mkdir build && cd build
 cmake -DPAHO_WITH_SSL=TRUE .. 
@@ -11,7 +12,8 @@ make && sudo make install
  
 # build paho.mqtt.cpp
 cd $EXECPATH
-git clone https://github.com/eclipse/paho.mqtt.cpp.git
+rm -rf paho.mqtt.cpp
+git clone https://github.com/eclipse/paho.mqtt.cpp.git --depth 1
 cd paho.mqtt.cpp/
 mkdir build && cd build
 cmake ..
@@ -21,13 +23,15 @@ sudo ldconfig -v
  
 # build mjpg-streamer
 cd $EXECPATH
-git clone https://github.com/jacksonliam/mjpg-streamer.git
+rm -rf mjpg-streamer
+git clone https://github.com/jacksonliam/mjpg-streamer.git --depth 1
 cd mjpg-streamer/mjpg-streamer-experimental/
 make
 
 # build lepd
 cd $EXECPATH
-git clone https://github.com/ZevveZ/lepd.git
+rm -rf lepd
+git clone https://github.com/ZevveZ/lepd.git --depth 1
 cd lepd/
 make
 
